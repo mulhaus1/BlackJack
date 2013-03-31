@@ -32,8 +32,10 @@ jinja_environment = jinja2.Environment(
 class Game(ndb.Model):
     name = ndb.StringProperty()
     game_id = ndb.IntegerProperty()
+    players = ndb.StringProperty()
     players_max = ndb.IntegerProperty()
     players_current = ndb.IntegerProperty()
+    deck = ndb.StringProperty()
 
 
 class Player(ndb.Model):
@@ -46,6 +48,7 @@ class GameStatus(ndb.Model):
     game_id = ndb.IntegerProperty()
     name = ndb.StringProperty()
     player_id = ndb.IntegerProperty()
+    tokens = ndb.IntegerProperty()
     your_actions = ndb.StringProperty()
     your_cards_visible = ndb.StringProperty()
     common_cards_visible = ndb.StringProperty()
@@ -70,24 +73,57 @@ class GameHandler(webapp2.RequestHandler):
         self.response.out.write(form)
         self.response.out.write('<script src="/js/jquery.min.js" type="text/javascript" ></script>')
         self.response.out.write('<script src="/js/gamepage.js" type="text/javascript" ></script>')
+        self.response.out.write('<a href="http://localhost:8080/clear">Clear entire datastore... for debug purposes ONLY!</a>')
         self.response.out.write("</body></html>")
 
     def post(self):
         self.response.out.write('Game Handler post')
         user = users.get_current_user()
         key = randint(0, 999999999)
-        game = Game(name = cgi.escape(self.request.get('name')),
-                    game_id = key,
-                    players_max = 6,
-                    players_current = 0)
+        game = Game(name=cgi.escape(self.request.get('name')),
+                    game_id=key,
+                    players="[]",
+                    players_max=6,
+                    players_current=0,
+                    deck=json.encode(["2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "Jh", "Qh", "Kh", "Ah",
+                                      "2d", "3d", "4d", "5d", "6d", "7d", "8d", "9d", "10d", "Jd", "Qd", "Kd", "Ad",
+                                      "2s", "3s", "4s", "5s", "6s", "7s", "8s", "9s", "10s", "Js", "Qs", "Ks", "As",
+                                      "2c", "3c", "4c", "5c", "6c", "7c", "8c", "9c", "10c", "Jc", "Qc", "Kc", "Ac"]))
         game.put()
-
 
 
 class PlayerConnectHandler(webapp2.RequestHandler):
     def post(self):
-        self.response.out.write("Player Connect post")
-
+        #self.response.out.write("Player Connect post")
+        game_id = self.request.path
+        game_id = game_id.replace('/game/', '')
+        game_id = game_id.replace('/playerConnect', '')
+        username = str(self.request.get('username'))
+        player = ndb.gql("SELECT * FROM Player WHERE name = '" + username + "'").fetch()
+        if len(player) == 0:
+            key = randint(0, 99999999)
+            player = Player(name=username,
+                            player_id=key,
+                            tokens=1000)
+            player.put()
+            game_status = GameStatus(game_id=int(game_id),
+                                     name=username,
+                                     player_id=key,
+                                     tokens=1000,
+                                     your_cards_visible="",
+                                     common_cards_visible="",
+                                     your_actions="")
+            game_status.put()
+        else:
+            player = player[0]
+        game_retrieved = ndb.gql("SELECT * FROM Game WHERE game_id = " + game_id).fetch()
+        game_retrieved = game_retrieved[0]
+        if game_retrieved.players_current == 6:
+            self.response.out.write("error")
+        else:
+            players_array = json.decode(game_retrieved.players)
+            players_array.append(player.name)
+            self.response.out.write("ok")
 
 class StatusHandler(webapp2.RequestHandler):
     def get(self):
@@ -96,7 +132,10 @@ class StatusHandler(webapp2.RequestHandler):
 
 class VisibleTableHandler(webapp2.RequestHandler):
     def get(self):
-        self.response.out.write("Visible Table Handler get")
+        username = str(self.request.get('player'))
+        player = ndb.gql("SELECT * FROM Player WHERE username = '" + username + "'").fetch()
+
+
 
 
 class ActionHandler(webapp2.RequestHandler):
@@ -104,9 +143,28 @@ class ActionHandler(webapp2.RequestHandler):
         self.response.out.write("Action Handler Post")
 
 
+class ClearHandler(webapp2.RequestHandler):
+    def get(self):
+        self.deleteAll()
+
+    def post(self):
+        self.deleteAll()
+
+    def deleteAll(self):
+        self.deleteKeys(ndb.gql('SELECT * FROM Player').fetch())
+        self.deleteKeys(ndb.gql('SELECT * FROM GameStatus').fetch())
+        self.deleteKeys(ndb.gql('SELECT * FROM Game').fetch())
+        self.response.out.write("Datastore has been successfully cleared!!!")
+
+    def deleteKeys(self, keys):
+        for key in keys:
+            key.key.delete()
+
+
 app = webapp2.WSGIApplication([('/games', GameHandler),
                                ('/game/.*/playerConnect', PlayerConnectHandler),
                                ('/game/.*/visible_table', VisibleTableHandler),
                                ('/game/.*/action', ActionHandler),
-                               ('/game/.*/status', StatusHandler)
+                               ('/game/.*/status', StatusHandler),
+                               ('/clear', ClearHandler)
                               ], debug=True)
