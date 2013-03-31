@@ -15,6 +15,7 @@
 # limitations under the License.
 #
 from random import randint
+from random import choice
 import os
 import cgi
 
@@ -35,7 +36,6 @@ class Game(ndb.Model):
     players = ndb.StringProperty()
     players_max = ndb.IntegerProperty()
     players_current = ndb.IntegerProperty()
-    deck = ndb.StringProperty()
 
 
 class Player(ndb.Model):
@@ -43,9 +43,13 @@ class Player(ndb.Model):
     player_id = ndb.IntegerProperty()
     tokens = ndb.IntegerProperty()
 
+
 class Dealer(ndb.Model):
     game_id = ndb.IntegerProperty()
-    dealer_cards = ndb.StringProperty()
+    dealer_card_v = ndb.StringProperty()
+    dealer_card_n = ndb.StringProperty()
+    deck = ndb.StringProperty()
+
 
 class GameStatus(ndb.Model):
     game_id = ndb.IntegerProperty()
@@ -87,14 +91,15 @@ class GameHandler(webapp2.RequestHandler):
                     game_id=key,
                     players=json.encode([]),
                     players_max=6,
-                    players_current=0,
-                    deck=json.encode(["2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "Jh", "Qh", "Kh", "Ah",
-                                      "2d", "3d", "4d", "5d", "6d", "7d", "8d", "9d", "10d", "Jd", "Qd", "Kd", "Ad",
-                                      "2s", "3s", "4s", "5s", "6s", "7s", "8s", "9s", "10s", "Js", "Qs", "Ks", "As",
-                                      "2c", "3c", "4c", "5c", "6c", "7c", "8c", "9c", "10c", "Jc", "Qc", "Kc", "Ac"]))
+                    players_current=0)
         game.put()
         dealer = Dealer(game_id=key,
-                        dealer_cards="")
+                        dealer_card_v=json.encode([]),
+                        dealer_card_n="",
+                        deck=json.encode(["2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "Jh", "Qh", "Kh", "Ah",
+                                          "2d", "3d", "4d", "5d", "6d", "7d", "8d", "9d", "10d", "Jd", "Qd", "Kd", "Ad",
+                                          "2s", "3s", "4s", "5s", "6s", "7s", "8s", "9s", "10s", "Js", "Qs", "Ks", "As",
+                                          "2c", "3c", "4c", "5c", "6c", "7c", "8c", "9c", "10c", "Jc", "Qc", "Kc", "Ac"]))
         dealer.put()
 
 
@@ -118,7 +123,8 @@ class PlayerConnectHandler(webapp2.RequestHandler):
                                      tokens=1000,
                                      your_cards_visible=json.encode([]),
                                      common_cards_visible=json.encode([]),
-                                     your_actions=json.encode([]))
+                                     your_actions=json.encode([]),
+                                     players=json.encode([]))
             game_status.put()
         else:
             player = player[0]
@@ -130,7 +136,8 @@ class PlayerConnectHandler(webapp2.RequestHandler):
                                          tokens=1000,
                                          your_cards_visible=json.encode([]),
                                          common_cards_visible=json.encode([]),
-                                         your_actions=json.encode([]))
+                                         your_actions=json.encode([]),
+                                         players=json.encode([]))
             else:
                 game_status = game_status[0]
             game_status.put()
@@ -147,14 +154,28 @@ class PlayerConnectHandler(webapp2.RequestHandler):
             if check_player == 0:
                 players_array.append(player.name)
                 game_retrieved.players = json.encode(players_array)
+                game_status.players = game_retrieved.players
                 game_retrieved.players_current += 1
                 game_retrieved.put()
+                game_status.put()
             self.response.out.write("ok")
 
 
 class StatusHandler(webapp2.RequestHandler):
     def get(self):
-        self.response.out.write("Status Handler get")
+        #self.response.out.write("Status Handler get")
+        game_id = self.request.path
+        game_id = game_id.replace('/game/', '')
+        game_id = game_id.replace('/status', '')
+        username = str(self.request.get('player'))
+        game_status = ndb.gql("SELECT * FROM GameStatus WHERE name = '" + username + "' AND game_id = " + game_id).fetch()
+        game_status = game_status[0]
+        ret_status = {"your_actions": game_status.your_actions,
+                      "your_visible_cards": game_status.your_cards_visible,
+                      "common_cards_visible": game_status.common_cards_visible,
+                      "players": game_status.players}
+        ret_status = json.encode(ret_status)
+        self.response.out.write(ret_status)
 
 
 class VisibleTableHandler(webapp2.RequestHandler):
@@ -172,10 +193,13 @@ class VisibleTableHandler(webapp2.RequestHandler):
 
 class ActionHandler(webapp2.RequestHandler):
     def post(self):
+        game_id = self.request.path
+        game_id = game_id.replace('/game/', '')
+        game_id = game_id.replace('/action', '')
         username = str(self.request.get('player'))
         player = ndb.gql("SELECT * FROM Player WHERE name = '" + username + "'").fetch()
         player = player[0]
-        game_status = ndb.gql("SELECT * FROM GameStatus WHERE name = '" + username + "'").fetch()
+        game_status = ndb.gql("SELECT * FROM GameStatus WHERE name = '" + username + "' AND game_id = " + game_id).fetch()
         game_status = game_status[0]
         action = str(self.request.get('action'))
         if action == "bet":
@@ -186,13 +210,39 @@ class ActionHandler(webapp2.RequestHandler):
                 player.tokens -= value
                 game_status.tokens -= value
                 actions_array = json.decode(game_status.your_actions)
-                actions_array.append("bet")
+                actions_array.append("play")
                 game_status.your_actions = json.encode(actions_array)
                 player.put()
                 game_status.put()
                 self.response.out.write("ok")
         elif action == "play":
-            blah = 1
+            dealer = ndb.gql("SELECT * FROM Dealer WHERE game_id = " + game_id).fetch()
+            dealer = dealer[0]
+            deck = json.decode(dealer.deck)
+            card1 = choice(deck)
+            deck.remove(card1)
+            card2 = choice(deck)
+            deck.remove(card2)
+            player_cards = [card1, card2]
+            game_status.your_cards_visible = json.encode(player_cards)
+            game_status.put()
+            check_games = ndb.gql("SELECT * FROM GameStatus WHERE game_id = " + game_id).fetch()
+            check_num = 1
+            for game_s in check_games:
+                if len(json.decode(game_s.your_cards_visible)) != 2:
+                    check_num = 0
+            if check_num == 1:
+                d_card1 = choice(deck)
+                deck.remove(d_card1)
+                d_card2 = choice(deck)
+                deck.remove(d_card2)
+                d_visible = json.decode(dealer.dealer_card_v)
+                d_visible.append(d_card1)
+                dealer.dealer_card_v = json.encode(d_visible)
+                dealer.dealer_card_n = d_card2
+            dealer.deck = json.encode(deck)
+            dealer.put()
+            self.response.out.write("ok")
         # elif action == "draw":
         #
         # elif action == "fold":
