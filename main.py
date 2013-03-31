@@ -122,14 +122,33 @@ class PlayerConnectHandler(webapp2.RequestHandler):
             game_status.put()
         else:
             player = player[0]
+            game_status = ndb.gql("SELECT * FROM GameStatus WHERE name = '" + username + "' AND game_id = " + game_id).fetch()
+            if len(game_status) == 0:
+                game_status = GameStatus(game_id=int(game_id),
+                                         name=username,
+                                         player_id=player.key,
+                                         tokens=1000,
+                                         your_cards_visible=json.encode([]),
+                                         common_cards_visible=json.encode([]),
+                                         your_actions=json.encode([]))
+            else:
+                game_status = game_status[0]
+            game_status.put()
         game_retrieved = ndb.gql("SELECT * FROM Game WHERE game_id = " + game_id).fetch()
         game_retrieved = game_retrieved[0]
         if game_retrieved.players_current == 6:
             self.response.out.write("error")
         else:
             players_array = json.decode(game_retrieved.players)
-            players_array.append(player.name)
-
+            check_player = 0
+            for p in players_array:
+                if p == player.name:
+                    check_player = 1
+            if check_player == 0:
+                players_array.append(player.name)
+                game_retrieved.players = json.encode(players_array)
+                game_retrieved.players_current += 1
+                game_retrieved.put()
             self.response.out.write("ok")
 
 
@@ -142,8 +161,10 @@ class VisibleTableHandler(webapp2.RequestHandler):
     def get(self):
         username = str(self.request.get('player'))
         player = ndb.gql("SELECT * FROM Player WHERE name = '" + username + "'").fetch()
+        player = player[0]
         template_values = {
-            'username':  username
+            'username':  username,
+            'tokens': player.tokens
         }
         template = jinja_environment.get_template('table.html')
         self.response.out.write(template.render(template_values))
