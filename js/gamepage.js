@@ -12,7 +12,7 @@ $('.join').click(function (){
                window.location.href = 'http://127.0.0.1:8080/game/' + currGame + '/visible_table?player=' + username;
            }
            else {
-               alert("error, unknown")
+               alert("bad post return")
            }
         }).fail(function () {
                 alert("failed on post")

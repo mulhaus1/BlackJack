@@ -24,7 +24,7 @@ from google.appengine.ext import ndb
 from google.appengine.api import users
 from webapp2_extras import json
 
-jinja_environment = jinja2.Environment(
+jinja_environment = jinja2.Environment(autoescape=True,
     loader=jinja2.FileSystemLoader(os.path.dirname(__file__))
 )
 
@@ -43,6 +43,9 @@ class Player(ndb.Model):
     player_id = ndb.IntegerProperty()
     tokens = ndb.IntegerProperty()
 
+class Dealer(ndb.Model):
+    game_id = ndb.IntegerProperty()
+    dealer_cards = ndb.StringProperty()
 
 class GameStatus(ndb.Model):
     game_id = ndb.IntegerProperty()
@@ -77,12 +80,12 @@ class GameHandler(webapp2.RequestHandler):
         self.response.out.write("</body></html>")
 
     def post(self):
-        self.response.out.write('Game Handler post')
-        user = users.get_current_user()
+        #self.response.out.write('Game Handler post')
+        #user = users.get_current_user()
         key = randint(0, 999999999)
         game = Game(name=cgi.escape(self.request.get('name')),
                     game_id=key,
-                    players="[]",
+                    players=json.encode([]),
                     players_max=6,
                     players_current=0,
                     deck=json.encode(["2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "Jh", "Qh", "Kh", "Ah",
@@ -90,6 +93,9 @@ class GameHandler(webapp2.RequestHandler):
                                       "2s", "3s", "4s", "5s", "6s", "7s", "8s", "9s", "10s", "Js", "Qs", "Ks", "As",
                                       "2c", "3c", "4c", "5c", "6c", "7c", "8c", "9c", "10c", "Jc", "Qc", "Kc", "Ac"]))
         game.put()
+        dealer = Dealer(game_id=key,
+                        dealer_cards="")
+        dealer.put()
 
 
 class PlayerConnectHandler(webapp2.RequestHandler):
@@ -110,9 +116,9 @@ class PlayerConnectHandler(webapp2.RequestHandler):
                                      name=username,
                                      player_id=key,
                                      tokens=1000,
-                                     your_cards_visible="",
-                                     common_cards_visible="",
-                                     your_actions="")
+                                     your_cards_visible=json.encode([]),
+                                     common_cards_visible=json.encode([]),
+                                     your_actions=json.encode([]))
             game_status.put()
         else:
             player = player[0]
@@ -123,7 +129,9 @@ class PlayerConnectHandler(webapp2.RequestHandler):
         else:
             players_array = json.decode(game_retrieved.players)
             players_array.append(player.name)
+
             self.response.out.write("ok")
+
 
 class StatusHandler(webapp2.RequestHandler):
     def get(self):
@@ -133,15 +141,45 @@ class StatusHandler(webapp2.RequestHandler):
 class VisibleTableHandler(webapp2.RequestHandler):
     def get(self):
         username = str(self.request.get('player'))
-        player = ndb.gql("SELECT * FROM Player WHERE username = '" + username + "'").fetch()
-
-
+        player = ndb.gql("SELECT * FROM Player WHERE name = '" + username + "'").fetch()
+        template_values = {
+            'username':  username
+        }
+        template = jinja_environment.get_template('table.html')
+        self.response.out.write(template.render(template_values))
 
 
 class ActionHandler(webapp2.RequestHandler):
     def post(self):
-        self.response.out.write("Action Handler Post")
+        username = str(self.request.get('player'))
+        player = ndb.gql("SELECT * FROM Player WHERE name = '" + username + "'").fetch()
+        player = player[0]
+        game_status = ndb.gql("SELECT * FROM GameStatus WHERE name = '" + username + "'").fetch()
+        game_status = game_status[0]
+        action = str(self.request.get('action'))
+        if action == "bet":
+            value = int(self.request.get('value'))
+            if value > player.tokens:
+                self.response.out.write("Bet more than the number of tokens you have")
+            else:
+                player.tokens -= value
+                game_status.tokens -= value
+                actions_array = json.decode(game_status.your_actions)
+                actions_array.append("bet")
+                game_status.your_actions = json.encode(actions_array)
+                player.put()
+                game_status.put()
+                self.response.out.write("ok")
+        # elif action == "play":
+        #
+        # elif action == "draw":
+        #
+        # elif action == "fold":
+        #
+        # elif action == "doubledown":
 
+        else:
+            self.response.out.write("error")
 
 class ClearHandler(webapp2.RequestHandler):
     def get(self):
