@@ -126,7 +126,7 @@ class PlayerConnectHandler(webapp2.RequestHandler):
             if len(game_status) == 0:
                 game_status = GameStatus(game_id=int(game_id),
                                          name=username,
-                                         player_id=player.key,
+                                         player_id=player.player_id,
                                          tokens=1000,
                                          your_cards_visible=json.encode([]),
                                          common_cards_visible=json.encode([]),
@@ -191,8 +191,8 @@ class ActionHandler(webapp2.RequestHandler):
                 player.put()
                 game_status.put()
                 self.response.out.write("ok")
-        # elif action == "play":
-        #
+        elif action == "play":
+            blah = 1
         # elif action == "draw":
         #
         # elif action == "fold":
